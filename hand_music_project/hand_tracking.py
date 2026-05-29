@@ -20,6 +20,12 @@ OSC_IP = "127.0.0.1"
 OSC_PORT = 9000
 CAMERA_INDEX = 0
 
+# These two numbers calibrate the open/close gesture.
+# If open hand is too low, decrease OPEN_HAND_RATIO.
+# If closed hand is too high, increase CLOSED_HAND_RATIO.
+CLOSED_HAND_RATIO = 1.10
+OPEN_HAND_RATIO = 1.60
+
 
 mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
@@ -49,7 +55,8 @@ def get_openness(landmarks):
         total += distance(wrist, landmarks[finger_id])
 
     average_distance = total / len(fingertips)
-    openness = (average_distance / palm_size - 1.4) / 1.1
+    hand_ratio = average_distance / palm_size
+    openness = (hand_ratio - CLOSED_HAND_RATIO) / (OPEN_HAND_RATIO - CLOSED_HAND_RATIO)
 
     return clamp(openness)
 

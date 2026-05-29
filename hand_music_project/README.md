@@ -55,17 +55,26 @@ python -m pip install -r requirements.txt
 
 If MediaPipe does not install, use Python 3.9, 3.10, 3.11, or 3.12.
 
+If the virtual environment was created with Python 3.13, delete it and create it again with Python 3.9:
+
+```bash
+rm -rf .venv
+python3.9 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
 ## 4. How To Run
 
 ### Start MediaMTX
 
-Install MediaMTX and run it:
+Install MediaMTX and run it with the small config file:
 
 ```bash
-mediamtx
+mediamtx mediamtx.yml
 ```
 
-The default MediaMTX configuration is enough for this project.
+The config file allows MediaMTX to accept the stream path used by OBS.
 
 ### Start the Renderer
 
@@ -100,23 +109,24 @@ In OBS:
 5. Set server to:
 
 ```text
-rtmp://localhost/live/handmusic
+rtmp://localhost/handmusic
 ```
 
-6. Start streaming.
+6. Leave the stream key empty.
+7. Start streaming.
 
 ### Open Browser Playback
 
 Open:
 
 ```text
-http://localhost:8889/live/handmusic
+http://localhost:8889/handmusic
 ```
 
 If that does not work, try:
 
 ```text
-http://localhost:8888/live/handmusic
+http://localhost:8888/handmusic
 ```
 
 ## 5. OSC Messages
@@ -162,7 +172,7 @@ All values are between `0` and `1`.
 ### Stream Not Visible
 
 - Start MediaMTX before OBS streaming.
-- Check the OBS server URL: `rtmp://localhost/live/handmusic`.
+- Check the OBS server URL: `rtmp://localhost/handmusic`.
 - Open the browser page after OBS starts streaming.
 
 ## 7. Delivery Note
