@@ -2,7 +2,7 @@
 
 ## 1. Project Description
 
-This is a simple interactive audio project.
+This is a simple interactive audio project with machine learning.
 
 A webcam tracks one hand. The Python hand tracking script extracts:
 
@@ -10,13 +10,15 @@ A webcam tracks one hand. The Python hand tracking script extracts:
 - hand y position
 - hand openness
 
-These values are sent with OSC to another Python script. The second script creates sound in real time:
+These three values are sent with OSC to Wekinator. Wekinator is used as the machine learning part of the project. It learns how the hand features should control the audio.
 
-- openness controls volume
-- x position controls stereo pan
-- y position controls pitch
+Wekinator sends three output values to the Python renderer:
 
-OBS captures the renderer window and audio, then streams them to MediaMTX. MediaMTX serves the stream locally to a browser.
+- stereo pan
+- pitch
+- volume
+
+The renderer creates the sound in real time. OBS captures the renderer window and audio, then streams them to MediaMTX. MediaMTX serves the stream locally to a browser.
 
 ## 2. Architecture
 
@@ -26,7 +28,13 @@ Webcam
   v
 hand_tracking.py
   |
-  | OSC messages on 127.0.0.1:9000
+  | OSC: /wek/inputs x y openness
+  | port: 6448
+  v
+Wekinator
+  |
+  | OSC: /wek/outputs pan pitch volume
+  | port: 12000
   v
 renderer.py
   |
@@ -40,7 +48,7 @@ MediaMTX
 Browser
 ```
 
-The two Python scripts communicate only with OSC.
+All communication between the software parts uses OSC.
 
 ## 3. Install Requirements
 
@@ -64,7 +72,78 @@ source .venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-## 4. How To Run
+## 4. Wekinator Setup
+
+Open Wekinator and create a new project.
+
+Use these settings:
+
+```text
+Number of inputs: 3
+Number of outputs: 3
+Input port: 6448
+Input message: /wek/inputs
+Output host: 127.0.0.1
+Output port: 12000
+Output message: /wek/outputs
+Output type: continuous
+```
+
+Meaning of Wekinator inputs:
+
+```text
+Input 1: x position
+Input 2: y position
+Input 3: openness
+```
+
+Meaning of Wekinator outputs:
+
+```text
+Output 1: pan
+Output 2: pitch
+Output 3: volume
+```
+
+All inputs and outputs should stay between `0` and `1`.
+
+## 5. Training Wekinator
+
+Run `hand_tracking.py` first so Wekinator receives the live hand input.
+
+In Wekinator, record simple examples like this:
+
+```text
+Closed hand:
+Output 3 volume = 0.0
+
+Open hand:
+Output 3 volume = 1.0
+
+Hand left:
+Output 1 pan = 0.0
+
+Hand center:
+Output 1 pan = 0.5
+
+Hand right:
+Output 1 pan = 1.0
+
+Hand low:
+Output 2 pitch = 0.0
+
+Hand middle:
+Output 2 pitch = 0.5
+
+Hand high:
+Output 2 pitch = 1.0
+```
+
+Record a few examples for each gesture. Then click `Train`. After training, click `Run`.
+
+When Wekinator is running, moving the hand should change the sound through the renderer.
+
+## 6. How To Run
 
 ### Start MediaMTX
 
@@ -85,7 +164,11 @@ source .venv/bin/activate
 python renderer.py
 ```
 
-This opens a small visual window and starts the audio renderer.
+The renderer listens for Wekinator on:
+
+```text
+127.0.0.1:12000
+```
 
 ### Start Hand Tracking
 
@@ -96,7 +179,19 @@ source .venv/bin/activate
 python hand_tracking.py
 ```
 
-Show one hand to the webcam.
+The hand tracker sends OSC to Wekinator on:
+
+```text
+127.0.0.1:6448
+```
+
+### Start Wekinator
+
+Open your Wekinator project, make sure it is trained, then click:
+
+```text
+Run
+```
 
 ### Configure OBS
 
@@ -123,33 +218,43 @@ Open:
 http://localhost:8889/handmusic
 ```
 
-If that does not work, try:
+If that does not work, use HLS:
 
 ```text
 http://localhost:8888/handmusic
 ```
 
-## 5. OSC Messages
+HLS can have a few seconds of delay. This is normal.
 
-`hand_tracking.py` sends these messages to `renderer.py`.
+## 7. OSC Messages
 
-```text
-/hand/position
-payload: x, y
-example: /hand/position 0.25 0.70
-meaning: hand position
-```
+`hand_tracking.py` sends this message to Wekinator:
 
 ```text
-/hand/openness
-payload: openness
-example: /hand/openness 0.90
-meaning: how open the hand is
+/wek/inputs
+payload: x, y, openness
+example: /wek/inputs 0.25 0.70 0.90
+port: 6448
 ```
 
-All values are between `0` and `1`.
+Wekinator sends this message to `renderer.py`:
 
-## 6. Troubleshooting
+```text
+/wek/outputs
+payload: pan, pitch, volume
+example: /wek/outputs 0.25 0.70 0.80
+port: 12000
+```
+
+Renderer mapping:
+
+```text
+pan in [0, 1]    -> stereo pan from left to right
+pitch in [0, 1]  -> frequency from 220 Hz to 880 Hz
+volume in [0, 1] -> audio volume
+```
+
+## 8. Troubleshooting
 
 ### Webcam Not Detected
 
@@ -157,17 +262,24 @@ All values are between `0` and `1`.
 - Check camera permission.
 - Try changing `CAMERA_INDEX = 0` to `CAMERA_INDEX = 1` in `hand_tracking.py`.
 
+### Wekinator Does Not Receive Input
+
+- Start `hand_tracking.py`.
+- Check that Wekinator input port is `6448`.
+- Check that the input message is `/wek/inputs`.
+
+### Renderer Does Not Receive Output
+
+- Start `renderer.py` before clicking `Run` in Wekinator.
+- Check that Wekinator output port is `12000`.
+- Check that the output message is `/wek/outputs`.
+
 ### No Audio
 
-- Start `renderer.py` first.
+- Make sure Wekinator is trained and running.
+- Make sure Output 3 is not always `0`.
 - Check the system output volume.
 - Make sure OBS captures the correct audio output.
-
-### OSC Not Received
-
-- Both scripts must use port `9000`.
-- Start both scripts on the same computer.
-- Check that the terminal prints changing hand values.
 
 ### Stream Not Visible
 
@@ -175,13 +287,15 @@ All values are between `0` and `1`.
 - Check the OBS server URL: `rtmp://localhost/handmusic`.
 - Open the browser page after OBS starts streaming.
 
-## 7. Delivery Note
+## 9. Delivery Note
 
 Upload only:
 
 - source code
 - `README.md`
 - `requirements.txt`
+- `mediamtx.yml`
+- Wekinator project file or Wekinator screenshots/settings, if required
 - technical report
 
 Do not upload:

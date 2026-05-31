@@ -1,16 +1,16 @@
 """
 Entity 2: audio renderer.
 
-This script receives OSC data from hand_tracking.py and turns it into sound.
+This script receives OSC outputs from Wekinator and turns them into sound.
 
-OSC input on 127.0.0.1:9000:
-    /hand/position  x y
-    /hand/openness  openness
+OSC input from Wekinator:
+    127.0.0.1:12000
+    /wek/outputs  pan pitch volume
 
 Mapping:
-    x        -> stereo pan
-    y        -> pitch
-    openness -> volume
+    output 1 -> stereo pan
+    output 2 -> pitch
+    output 3 -> volume
 """
 
 import math
@@ -25,16 +25,16 @@ from pythonosc.dispatcher import Dispatcher
 
 
 OSC_IP = "127.0.0.1"
-OSC_PORT = 9000
+OSC_PORT = 12000
 
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 512
 
 
-# These values are updated when OSC messages arrive.
-x = 0.5
-y = 0.5
-openness = 0.0
+# These values are updated when Wekinator sends OSC outputs.
+pan_control = 0.5
+pitch_control = 0.5
+volume_control = 0.0
 
 pitch = 440.0
 volume = 0.0
@@ -49,29 +49,24 @@ def clamp(value):
 
 
 def update_audio_values():
-    """Convert hand values in [0, 1] into audio parameters."""
+    """Convert Wekinator outputs in [0, 1] into audio parameters."""
     global pitch, volume, pan
 
-    pitch = 220.0 + y * 660.0
-    volume = openness
-    pan = x * 2.0 - 1.0
+    volume = volume_control
+    pan = pan_control * 2.0 - 1.0
+    pitch = 220.0 + pitch_control * 660.0
 
 
-def receive_position(address, received_x, received_y):
-    """OSC message: /hand/position x y"""
-    global x, y, last_osc_time
+def receive_wekinator_outputs(address, *args):
+    """OSC message: /wek/outputs pan pitch volume"""
+    global volume_control, pan_control, pitch_control, last_osc_time
 
-    x = clamp(received_x)
-    y = clamp(received_y)
-    last_osc_time = time.time()
-    update_audio_values()
+    if len(args) < 3:
+        return
 
-
-def receive_openness(address, received_openness):
-    """OSC message: /hand/openness openness"""
-    global openness, last_osc_time
-
-    openness = clamp(received_openness)
+    pan_control = clamp(args[0])
+    pitch_control = clamp(args[1])
+    volume_control = clamp(args[2])
     last_osc_time = time.time()
     update_audio_values()
 
@@ -105,8 +100,7 @@ def audio_callback(outdata, frames, time_info, status):
 
 def start_osc_server():
     dispatcher = Dispatcher()
-    dispatcher.map("/hand/position", receive_position)
-    dispatcher.map("/hand/openness", receive_openness)
+    dispatcher.map("/wek/outputs", receive_wekinator_outputs)
 
     server = osc_server.ThreadingOSCUDPServer((OSC_IP, OSC_PORT), dispatcher)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -133,15 +127,15 @@ def draw_window():
 
     cv2.putText(image, "Hand Music Renderer", (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (240, 240, 240), 2)
 
-    draw_bar(image, f"Pitch: {pitch:.0f} Hz", (pitch - 220.0) / 660.0, 95, (255, 170, 40))
+    draw_bar(image, f"Pitch: {pitch:.0f} Hz", pitch_control, 95, (255, 170, 40))
     draw_bar(image, f"Volume: {volume:.2f}", volume, 145, (80, 220, 120))
-    draw_bar(image, f"Pan: {pan:.2f}", (pan + 1.0) / 2.0, 195, (120, 180, 255))
+    draw_bar(image, f"Pan: {pan:.2f}", pan_control, 195, (120, 180, 255))
 
-    hand_x = int(150 + x * 360)
-    hand_y = int(320 - y * 80)
+    hand_x = int(150 + pan_control * 360)
+    hand_y = int(320 - pitch_control * 80)
     cv2.rectangle(image, (150, 240), (510, 320), (90, 90, 90), 1)
     cv2.circle(image, (hand_x, hand_y), 8, (0, 255, 255), -1)
-    cv2.putText(image, "Hand position", (30, 285), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 230, 230), 1)
+    cv2.putText(image, "ML output", (30, 285), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 230, 230), 1)
 
     cv2.imshow("Renderer - OBS Capture", image)
     return cv2.waitKey(16) & 0xFF != ord("q")
@@ -150,7 +144,8 @@ def draw_window():
 def main():
     server = start_osc_server()
 
-    print(f"Renderer listening for OSC on {OSC_IP}:{OSC_PORT}")
+    print(f"Renderer listening for Wekinator OSC on {OSC_IP}:{OSC_PORT}")
+    print("OSC message: /wek/outputs pan pitch volume")
     print("Press q in the visual window to quit.")
 
     try:

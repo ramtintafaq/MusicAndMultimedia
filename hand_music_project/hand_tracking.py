@@ -2,11 +2,11 @@
 Entity 1: hand tracking.
 
 This script uses the webcam to detect one hand and sends simple gesture data
-to renderer.py using OSC.
+to Wekinator using OSC.
 
-OSC output to 127.0.0.1:9000:
-    /hand/position  x y
-    /hand/openness  openness
+OSC output to Wekinator:
+    127.0.0.1:6448
+    /wek/inputs  x y openness
 
 All values are normalized between 0 and 1.
 """
@@ -17,7 +17,7 @@ from pythonosc.udp_client import SimpleUDPClient
 
 
 OSC_IP = "127.0.0.1"
-OSC_PORT = 9000
+OSC_PORT = 6448
 CAMERA_INDEX = 0
 
 # These two numbers calibrate the open/close gesture.
@@ -69,7 +69,8 @@ def main():
         print("Webcam not detected.")
         return
 
-    print(f"Sending OSC to {OSC_IP}:{OSC_PORT}")
+    print(f"Sending OSC inputs to Wekinator on {OSC_IP}:{OSC_PORT}")
+    print("OSC message: /wek/inputs x y openness")
     print("Press q to quit.")
 
     with mp_hands.Hands(
@@ -98,9 +99,8 @@ def main():
                 y = clamp(1.0 - landmarks[9].y)
                 openness = get_openness(landmarks)
 
-                # Required OSC messages.
-                osc_client.send_message("/hand/position", [x, y])
-                osc_client.send_message("/hand/openness", openness)
+                # Wekinator receives three inputs: x, y, openness.
+                osc_client.send_message("/wek/inputs", [x, y, openness])
 
                 mp_draw.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
 
