@@ -10,13 +10,15 @@ A webcam tracks one hand. The Python hand tracking script extracts:
 - hand y position
 - hand openness
 
-These three values are sent with OSC to Wekinator. Wekinator is used as the machine learning part of the project. It learns how the hand features should control the audio.
+These three values are sent with OSC to both Wekinator and the renderer.
 
-Wekinator sends three output values to the Python renderer:
+Wekinator is used as the machine learning part of the project. In this version, Wekinator controls the volume from the open/close gesture.
 
-- stereo pan
-- pitch
-- volume
+The renderer maps the hand position directly:
+
+- x position controls stereo pan
+- y position controls pitch as fixed piano notes in one octave
+- Wekinator output controls volume
 
 The renderer creates the sound in real time. OBS captures the renderer window and audio, then streams them to MediaMTX. MediaMTX serves the stream locally to a browser.
 
@@ -27,18 +29,18 @@ Webcam
   |
   v
 hand_tracking.py
-  |
-  | OSC: /wek/inputs x y openness
-  | port: 6448
-  v
-Wekinator
-  |
-  | OSC: /wek/outputs pan pitch volume
-  | port: 12000
-  v
-renderer.py
-  |
-  v
+
+  -> OSC /hand/features x y openness, port 12000 -> renderer.py
+
+  -> OSC /wek/inputs x y openness, port 6448 -> Wekinator
+                                                    |
+                                                    v
+                         OSC /wek/outputs pan pitch volume, port 12000
+                                                    |
+                                                    v
+                                                renderer.py
+                                                    |
+                                                    v
 OBS
   |
   v
@@ -100,12 +102,14 @@ Input 3: openness
 Meaning of Wekinator outputs:
 
 ```text
-Output 1: pan
-Output 2: pitch
+Output 1: not used by renderer
+Output 2: not used by renderer
 Output 3: volume
 ```
 
 All inputs and outputs should stay between `0` and `1`.
+
+The renderer uses x and y directly for pan and pitch. This keeps open/close gestures from accidentally changing the note.
 
 ## 5. Training Wekinator
 
@@ -115,31 +119,19 @@ In Wekinator, record simple examples like this:
 
 ```text
 Closed hand:
+Output 1 = 0.5
+Output 2 = 0.5
 Output 3 volume = 0.0
 
 Open hand:
+Output 1 = 0.5
+Output 2 = 0.5
 Output 3 volume = 1.0
-
-Hand left:
-Output 1 pan = 0.0
-
-Hand center:
-Output 1 pan = 0.5
-
-Hand right:
-Output 1 pan = 1.0
-
-Hand low:
-Output 2 pitch = 0.0
-
-Hand middle:
-Output 2 pitch = 0.5
-
-Hand high:
-Output 2 pitch = 1.0
 ```
 
-Record a few examples for each gesture. Then click `Train`. After training, click `Run`.
+Record examples with the hand in different positions, but only change Output 3 for open and closed hands. Keep Output 1 and Output 2 around `0.5` because the renderer ignores them.
+
+Then click `Train`. After training, click `Run`.
 
 When Wekinator is running, moving the hand should change the sound through the renderer.
 
@@ -164,7 +156,7 @@ source .venv/bin/activate
 python renderer.py
 ```
 
-The renderer listens for Wekinator on:
+The renderer listens for hand tracking and Wekinator on:
 
 ```text
 127.0.0.1:12000
@@ -179,10 +171,11 @@ source .venv/bin/activate
 python hand_tracking.py
 ```
 
-The hand tracker sends OSC to Wekinator on:
+The hand tracker sends OSC to Wekinator and the renderer:
 
 ```text
-127.0.0.1:6448
+Wekinator: 127.0.0.1:6448
+Renderer:  127.0.0.1:12000
 ```
 
 ### Start Wekinator
@@ -237,6 +230,15 @@ example: /wek/inputs 0.25 0.70 0.90
 port: 6448
 ```
 
+`hand_tracking.py` also sends this message to `renderer.py`:
+
+```text
+/hand/features
+payload: x, y, openness
+example: /hand/features 0.25 0.70 0.90
+port: 12000
+```
+
 Wekinator sends this message to `renderer.py`:
 
 ```text
@@ -249,9 +251,9 @@ port: 12000
 Renderer mapping:
 
 ```text
-pan in [0, 1]    -> stereo pan from left to right
-pitch in [0, 1]  -> frequency from 220 Hz to 880 Hz
-volume in [0, 1] -> audio volume
+hand x in [0, 1]           -> stereo pan from left to right
+hand y in [0, 1]           -> one piano note from C4 to C5
+Wekinator volume in [0, 1] -> audio volume
 ```
 
 ## 8. Troubleshooting
@@ -270,7 +272,8 @@ volume in [0, 1] -> audio volume
 
 ### Renderer Does Not Receive Output
 
-- Start `renderer.py` before clicking `Run` in Wekinator.
+- Start `renderer.py` before starting hand tracking and before clicking `Run` in Wekinator.
+- Check that hand tracking sends `/hand/features` to port `12000`.
 - Check that Wekinator output port is `12000`.
 - Check that the output message is `/wek/outputs`.
 

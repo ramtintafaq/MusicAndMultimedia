@@ -2,11 +2,15 @@
 Entity 1: hand tracking.
 
 This script uses the webcam to detect one hand and sends simple gesture data
-to Wekinator using OSC.
+using OSC.
 
 OSC output to Wekinator:
     127.0.0.1:6448
     /wek/inputs  x y openness
+
+OSC output to renderer:
+    127.0.0.1:12000
+    /hand/features  x y openness
 
 All values are normalized between 0 and 1.
 """
@@ -17,8 +21,10 @@ from pythonosc.udp_client import SimpleUDPClient
 
 
 OSC_IP = "127.0.0.1"
-OSC_PORT = 6448
+WEKINATOR_PORT = 6448
+RENDERER_PORT = 12000
 CAMERA_INDEX = 0
+FINGERTIP_LANDMARKS = [4, 8, 12, 16, 20]
 
 # These two numbers calibrate the open/close gesture.
 # If open hand is too low, decrease OPEN_HAND_RATIO.
@@ -48,13 +54,12 @@ def get_openness(landmarks):
     palm = landmarks[9]
     palm_size = max(distance(wrist, palm), 0.01)
 
-    fingertips = [4, 8, 12, 16, 20]
     total = 0.0
 
-    for finger_id in fingertips:
+    for finger_id in FINGERTIP_LANDMARKS:
         total += distance(wrist, landmarks[finger_id])
 
-    average_distance = total / len(fingertips)
+    average_distance = total / len(FINGERTIP_LANDMARKS)
     hand_ratio = average_distance / palm_size
     openness = (hand_ratio - CLOSED_HAND_RATIO) / (OPEN_HAND_RATIO - CLOSED_HAND_RATIO)
 
@@ -62,15 +67,18 @@ def get_openness(landmarks):
 
 
 def main():
-    osc_client = SimpleUDPClient(OSC_IP, OSC_PORT)
+    wekinator_client = SimpleUDPClient(OSC_IP, WEKINATOR_PORT)
+    renderer_client = SimpleUDPClient(OSC_IP, RENDERER_PORT)
     camera = cv2.VideoCapture(CAMERA_INDEX)
 
     if not camera.isOpened():
         print("Webcam not detected.")
         return
 
-    print(f"Sending OSC inputs to Wekinator on {OSC_IP}:{OSC_PORT}")
+    print(f"Sending OSC inputs to Wekinator on {OSC_IP}:{WEKINATOR_PORT}")
+    print(f"Sending OSC features to renderer on {OSC_IP}:{RENDERER_PORT}")
     print("OSC message: /wek/inputs x y openness")
+    print("OSC message: /hand/features x y openness")
     print("Press q to quit.")
 
     with mp_hands.Hands(
@@ -99,14 +107,16 @@ def main():
                 y = clamp(1.0 - landmarks[9].y)
                 openness = get_openness(landmarks)
 
-                # Wekinator receives three inputs: x, y, openness.
-                osc_client.send_message("/wek/inputs", [x, y, openness])
+                # Wekinator receives these values for machine learning.
+                wekinator_client.send_message("/wek/inputs", [x, y, openness])
+
+                # The renderer uses x and y directly for pan and pitch.
+                renderer_client.send_message("/hand/features", [x, y, openness])
 
                 mp_draw.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
 
                 text = f"x: {x:.2f}  y: {y:.2f}  open: {openness:.2f}"
                 cv2.putText(frame, text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 255, 0), 2)
-                print(text)
             else:
                 cv2.putText(frame, "No hand detected", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
 

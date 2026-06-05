@@ -1,16 +1,20 @@
 """
 Entity 2: audio renderer.
 
-This script receives OSC outputs from Wekinator and turns them into sound.
+This script receives OSC messages and turns them into sound.
+
+OSC input from hand_tracking.py:
+    127.0.0.1:12000
+    /hand/features  x y openness
 
 OSC input from Wekinator:
     127.0.0.1:12000
     /wek/outputs  pan pitch volume
 
 Mapping:
-    output 1 -> stereo pan
-    output 2 -> pitch
-    output 3 -> volume
+    hand x -> stereo pan
+    hand y -> pitch, quantized to one octave of piano notes
+    Wekinator output 3 -> volume
 """
 
 import math
@@ -30,48 +34,93 @@ OSC_PORT = 12000
 SAMPLE_RATE = 44100
 BLOCK_SIZE = 512
 
+# One octave of piano notes. The renderer chooses from this list only.
+NOTES = [
+    {"name": "C4", "frequency": 261.63},
+    {"name": "C#4", "frequency": 277.18},
+    {"name": "D4", "frequency": 293.66},
+    {"name": "D#4", "frequency": 311.13},
+    {"name": "E4", "frequency": 329.63},
+    {"name": "F4", "frequency": 349.23},
+    {"name": "F#4", "frequency": 369.99},
+    {"name": "G4", "frequency": 392.00},
+    {"name": "G#4", "frequency": 415.30},
+    {"name": "A4", "frequency": 440.00},
+    {"name": "A#4", "frequency": 466.16},
+    {"name": "B4", "frequency": 493.88},
+    {"name": "C5", "frequency": 523.25},
+]
 
-# These values are updated when Wekinator sends OSC outputs.
+
+# Position values are updated by hand_tracking.py.
 pan_control = 0.5
 pitch_control = 0.5
+
+# Volume is updated by Wekinator.
 volume_control = 0.0
 
-pitch = 440.0
+pitch = NOTES[6]["frequency"]
+note_name = NOTES[6]["name"]
 volume = 0.0
 pan = 0.0
 
 phase = 0.0
-last_osc_time = 0.0
+last_hand_time = 0.0
+last_wekinator_time = 0.0
 
 
 def clamp(value):
     return max(0.0, min(1.0, float(value)))
 
 
+def pitch_control_to_note(value):
+    """Convert a value from 0 to 1 into one of the notes in NOTES."""
+    note_index = round(clamp(value) * (len(NOTES) - 1))
+    note = NOTES[note_index]
+    return note["name"], note["frequency"]
+
+
 def update_audio_values():
     """Convert Wekinator outputs in [0, 1] into audio parameters."""
-    global pitch, volume, pan
+    global pitch, note_name, volume, pan
 
     volume = volume_control
     pan = pan_control * 2.0 - 1.0
-    pitch = 220.0 + pitch_control * 660.0
+    note_name, pitch = pitch_control_to_note(pitch_control)
 
 
-def receive_wekinator_outputs(address, *args):
-    """OSC message: /wek/outputs pan pitch volume"""
-    global volume_control, pan_control, pitch_control, last_osc_time
+def receive_hand_features(_address, *args):
+    """OSC message: /hand/features x y openness"""
+    global pan_control, pitch_control, last_hand_time
 
     if len(args) < 3:
         return
 
-    pan_control = clamp(args[0])
-    pitch_control = clamp(args[1])
-    volume_control = clamp(args[2])
-    last_osc_time = time.time()
+    x, y, _openness = args[:3]
+
+    pan_control = clamp(x)
+    pitch_control = clamp(y)
+    last_hand_time = time.time()
     update_audio_values()
 
 
-def audio_callback(outdata, frames, time_info, status):
+def receive_wekinator_outputs(_address, *args):
+    """OSC message: /wek/outputs pan pitch volume"""
+    global volume_control, last_wekinator_time
+
+    if len(args) < 3:
+        return
+
+    _pan, _pitch, volume_value = args[:3]
+
+    # Only volume is taken from Wekinator.
+    # This prevents open/close gestures from changing pitch or pan.
+    volume_control = clamp(volume_value)
+    last_wekinator_time = time.time()
+    update_audio_values()
+
+
+def audio_callback(outdata, frames, _time_info, status):
     """This function is called continuously by sounddevice."""
     global phase
 
@@ -80,8 +129,8 @@ def audio_callback(outdata, frames, time_info, status):
 
     current_volume = volume
 
-    # If the hand tracker stops sending data, fade to silence.
-    if time.time() - last_osc_time > 1.0:
+    # If OSC stops sending data, fade to silence.
+    if time.time() - last_hand_time > 1.0 or time.time() - last_wekinator_time > 1.0:
         current_volume = 0.0
 
     t = (np.arange(frames) + phase) / SAMPLE_RATE
@@ -100,6 +149,7 @@ def audio_callback(outdata, frames, time_info, status):
 
 def start_osc_server():
     dispatcher = Dispatcher()
+    dispatcher.map("/hand/features", receive_hand_features)
     dispatcher.map("/wek/outputs", receive_wekinator_outputs)
 
     server = osc_server.ThreadingOSCUDPServer((OSC_IP, OSC_PORT), dispatcher)
@@ -127,7 +177,7 @@ def draw_window():
 
     cv2.putText(image, "Hand Music Renderer", (30, 45), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (240, 240, 240), 2)
 
-    draw_bar(image, f"Pitch: {pitch:.0f} Hz", pitch_control, 95, (255, 170, 40))
+    draw_bar(image, f"Pitch: {note_name} {pitch:.0f} Hz", pitch_control, 95, (255, 170, 40))
     draw_bar(image, f"Volume: {volume:.2f}", volume, 145, (80, 220, 120))
     draw_bar(image, f"Pan: {pan:.2f}", pan_control, 195, (120, 180, 255))
 
@@ -135,7 +185,7 @@ def draw_window():
     hand_y = int(320 - pitch_control * 80)
     cv2.rectangle(image, (150, 240), (510, 320), (90, 90, 90), 1)
     cv2.circle(image, (hand_x, hand_y), 8, (0, 255, 255), -1)
-    cv2.putText(image, "ML output", (30, 285), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 230, 230), 1)
+    cv2.putText(image, "Hand position", (30, 285), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (230, 230, 230), 1)
 
     cv2.imshow("Renderer - OBS Capture", image)
     return cv2.waitKey(16) & 0xFF != ord("q")
@@ -144,7 +194,8 @@ def draw_window():
 def main():
     server = start_osc_server()
 
-    print(f"Renderer listening for Wekinator OSC on {OSC_IP}:{OSC_PORT}")
+    print(f"Renderer listening for OSC on {OSC_IP}:{OSC_PORT}")
+    print("OSC message: /hand/features x y openness")
     print("OSC message: /wek/outputs pan pitch volume")
     print("Press q in the visual window to quit.")
 
