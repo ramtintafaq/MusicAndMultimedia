@@ -1,16 +1,3 @@
-"""
-Entity 1: hand tracking.
-
-This script uses the webcam to detect one hand and sends simple gesture data
-using OSC.
-
-OSC output to Wekinator:
-    127.0.0.1:6448
-    /wek/inputs  x y openness
-
-All values are normalized between 0 and 1.
-"""
-
 import cv2
 import mediapipe as mp
 from pythonosc.udp_client import SimpleUDPClient
@@ -21,9 +8,6 @@ WEKINATOR_PORT = 6448
 CAMERA_INDEX = 0
 FINGERTIP_LANDMARKS = [4, 8, 12, 16, 20]
 
-# These two numbers calibrate the open/close gesture.
-# If open hand is too low, decrease OPEN_HAND_RATIO.
-# If closed hand is too high, increase CLOSED_HAND_RATIO.
 CLOSED_HAND_RATIO = 1.10
 OPEN_HAND_RATIO = 1.60
 

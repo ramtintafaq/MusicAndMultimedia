@@ -1,18 +1,3 @@
-"""
-Entity 2: audio renderer.
-
-This script receives OSC messages and turns them into sound.
-
-OSC input from Wekinator:
-    127.0.0.1:12000
-    /wek/outputs  pan pitch volume
-
-Mapping:
-    Wekinator output 1 -> stereo pan
-    Wekinator output 2 -> pitch, quantized to one octave of piano notes
-    Wekinator output 3 -> volume
-"""
-
 import math
 import threading
 import time
