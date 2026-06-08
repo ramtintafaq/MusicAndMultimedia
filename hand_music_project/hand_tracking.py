@@ -8,10 +8,6 @@ OSC output to Wekinator:
     127.0.0.1:6448
     /wek/inputs  x y openness
 
-OSC output to renderer:
-    127.0.0.1:12000
-    /hand/features  x y openness
-
 All values are normalized between 0 and 1.
 """
 
@@ -22,7 +18,6 @@ from pythonosc.udp_client import SimpleUDPClient
 
 OSC_IP = "127.0.0.1"
 WEKINATOR_PORT = 6448
-RENDERER_PORT = 12000
 CAMERA_INDEX = 0
 FINGERTIP_LANDMARKS = [4, 8, 12, 16, 20]
 
@@ -37,14 +32,17 @@ mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
 
 
+# Keep a number between 0 and 1.
 def clamp(value):
     return max(0.0, min(1.0, value))
 
 
+# Calculate the distance between two MediaPipe points.
 def distance(point_a, point_b):
     return ((point_a.x - point_b.x) ** 2 + (point_a.y - point_b.y) ** 2) ** 0.5
 
 
+# Estimate how open or closed the detected hand is.
 def get_openness(landmarks):
     """
     Very simple open/close estimation.
@@ -66,9 +64,9 @@ def get_openness(landmarks):
     return clamp(openness)
 
 
+# Open the webcam, track the hand, and send OSC data to Wekinator.
 def main():
     wekinator_client = SimpleUDPClient(OSC_IP, WEKINATOR_PORT)
-    renderer_client = SimpleUDPClient(OSC_IP, RENDERER_PORT)
     camera = cv2.VideoCapture(CAMERA_INDEX)
 
     if not camera.isOpened():
@@ -76,9 +74,7 @@ def main():
         return
 
     print(f"Sending OSC inputs to Wekinator on {OSC_IP}:{WEKINATOR_PORT}")
-    print(f"Sending OSC features to renderer on {OSC_IP}:{RENDERER_PORT}")
     print("OSC message: /wek/inputs x y openness")
-    print("OSC message: /hand/features x y openness")
     print("Press q to quit.")
 
     with mp_hands.Hands(
@@ -102,16 +98,13 @@ def main():
                 hand = result.multi_hand_landmarks[0]
                 landmarks = hand.landmark
 
-                # Landmark 9 is near the center of the hand.
+                #landmark 9 is the center of the hand
                 x = clamp(landmarks[9].x)
                 y = clamp(1.0 - landmarks[9].y)
                 openness = get_openness(landmarks)
 
                 # Wekinator receives these values for machine learning.
                 wekinator_client.send_message("/wek/inputs", [x, y, openness])
-
-                # The renderer uses x and y directly for pan and pitch.
-                renderer_client.send_message("/hand/features", [x, y, openness])
 
                 mp_draw.draw_landmarks(frame, hand, mp_hands.HAND_CONNECTIONS)
 
